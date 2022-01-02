@@ -7,7 +7,9 @@ import logging
 import os
 import shutil
 import sys
+import threading
 import time
+from pynput import keyboard
 from dataclasses import asdict, dataclass
 from typing import Iterator, Optional
 
@@ -133,6 +135,28 @@ class Measure:
         self.num_lights = int(answers.get("num_lights", 1))
 
         self.light_info = self.light_controller.get_light_info()
+
+        def on_press(key):
+            try:
+                print('alphanumeric key {0} pressed'.format(
+                    key.char))
+            except AttributeError:
+                print('special key {0} pressed'.format(
+                    key))
+            return False
+
+        dummyCalibration = DummyLoadCalibrationThread(self)
+        # ...or, in a non-blocking fashion:
+        listener = keyboard.Listener(
+            on_press=dummyCalibration.on_key_pressed)
+        listener.start()
+        #dummyCalibrationKeyboard = DummyLoadCalibrationKeyboardInteruptThread()
+        dummyCalibration.start()
+        #dummyCalibrationKeyboard.start()
+        #listener.join()
+        #dummyCalibrationKeyboard.join()
+        dummy_power = dummyCalibration.join()
+        print(dummy_power)
 
         export_directory = os.path.join(
             os.path.dirname(__file__), "export", self.light_info.model_id
@@ -405,6 +429,36 @@ class Measure:
             + self.light_controller.get_questions()
             + self.power_meter.get_questions()
         )
+
+class DummyLoadCalibrationThread(threading.Thread):
+    def __init__(self, measure: Measure):
+        threading.Thread.__init__(self)
+        self.measure = measure
+        self.calibration_value = None
+        self.key_pressed_flag = False
+
+    def run(self):
+        while True:
+            if self.key_pressed_flag:
+                return
+            power = self.measure.take_power_measurement(time.time())
+            print(f"from thread {power}")
+            self.calibration_value = power
+            time.sleep(1)
+
+    def join(self, *args):
+        threading.Thread.join(self, *args)
+        return self.calibration_value
+    
+    def on_key_pressed(self, key):
+        self.key_pressed_flag = True
+
+class DummyLoadCalibrationKeyboardInteruptThread(threading.Thread):
+
+    def run(self):
+        keystrk = input('Press any key \n')
+        print('You pressed: ', keystrk)
+
 
 @dataclass(frozen=True)
 class Variation:
